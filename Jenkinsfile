@@ -64,7 +64,7 @@ pipeline {
 
         stage('SonarQube analysis') {
             steps {
-                withSonarQubeEnv('SonarQube') {
+                withSonarQubeEnv(installationName: 'SonarQube', credentialsId: 'sonarcloud-token-backend') {
                     sh 'npx sonar-scanner'
                 }
             }
