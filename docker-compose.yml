@@ -1,0 +1,53 @@
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: tasklist-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
+      MYSQL_DATABASE: tasklist
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - tasklist-net
+
+  backend:
+    build: .
+    container_name: tasklist-backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: mysql://root@mysql:3306/tasklist
+      PORT: 3001
+    ports:
+      - "3001:3001"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - tasklist-net
+
+  frontend:
+    image: cicd-tasklist-frontend:latest
+    container_name: tasklist-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    networks:
+      - tasklist-net
+
+networks:
+  tasklist-net:
+    name: tasklist-net
+
+volumes:
+  mysql_data:
