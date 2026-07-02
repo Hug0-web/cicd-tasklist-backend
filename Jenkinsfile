@@ -74,7 +74,7 @@ pipeline {
 
         stage('Quality Gate') {
             steps {
-                withCredentials([string(credentialsId: 'sonarqube-token', variable: 'SONAR_TOKEN')]) {
+                withCredentials([string(credentialsId: 'sonarcloud-token-backend', variable: 'SONAR_TOKEN')]) {
                     sh '''
                         TASK_ID=$(grep -oP "(?<=ceTaskId=).+" .scannerwork/report-task.txt)
                         SONAR_URL=$(grep -oP "(?<=serverUrl=).+" .scannerwork/report-task.txt)
