@@ -12,10 +12,8 @@ pipeline {
     }
 
     environment {
-        DOCKERHUB_CREDENTIALS = credentials('dockerhub-credentials')
-        DOCKERHUB_NAMESPACE   = 'CHANGE_ME'
-        IMAGE_NAME            = "${DOCKERHUB_NAMESPACE}/tasklist-backend"
-        IMAGE_TAG             = "${env.BUILD_NUMBER}"
+        IMAGE_NAME = 'tasklist-backend'
+        IMAGE_TAG  = "${env.BUILD_NUMBER}"
     }
 
     stages {
@@ -86,41 +84,18 @@ pipeline {
             }
         }
 
-        stage('Docker push') {
-            steps {
-                sh 'echo "$DOCKERHUB_CREDENTIALS_PSW" | docker login -u "$DOCKERHUB_CREDENTIALS_USR" --password-stdin'
-                sh "docker push ${IMAGE_NAME}:${IMAGE_TAG}"
-                sh "docker push ${IMAGE_NAME}:latest"
-            }
-            post {
-                always {
-                    sh 'docker logout'
-                }
-            }
-        }
-
-        stage('Deploy') {
+        stage('Deploy (local Docker)') {
             when {
                 branch 'main'
             }
             steps {
-                withCredentials([
-                    string(credentialsId: 'deploy-host', variable: 'DEPLOY_HOST'),
-                    string(credentialsId: 'deploy-user', variable: 'DEPLOY_USER')
-                ]) {
-                    sshagent(credentials: ['deploy-server-ssh']) {
-                        sh """
-                            ssh -o StrictHostKeyChecking=no \$DEPLOY_USER@\$DEPLOY_HOST '
-                                docker pull ${IMAGE_NAME}:latest &&
-                                docker stop tasklist-backend || true &&
-                                docker rm tasklist-backend || true &&
-                                docker run -d --name tasklist-backend --restart unless-stopped \
-                                    -p 3001:3001 --env-file /opt/tasklist/backend.env \
-                                    ${IMAGE_NAME}:latest
-                            '
-                        """
-                    }
-                }
+                sh """
+                    docker stop tasklist-backend || true
+                    docker rm tasklist-backend || true
+                    docker run -d --name tasklist-backend --restart unless-stopped \
+                        -p 3001:3001 --env-file "\$WORKSPACE/.env" \
+                        ${IMAGE_NAME}:latest
+                """
             }
         }
     }
