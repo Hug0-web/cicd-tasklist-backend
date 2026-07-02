@@ -1,0 +1,131 @@
+pipeline {
+    agent any
+
+    tools {
+        nodejs 'NodeJS_20'
+    }
+
+    options {
+        timestamps()
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+    }
+
+    environment {
+        DOCKERHUB_CREDENTIALS = credentials('dockerhub-credentials')
+        DOCKERHUB_NAMESPACE   = 'CHANGE_ME'
+        IMAGE_NAME            = "${DOCKERHUB_NAMESPACE}/tasklist-backend"
+        IMAGE_TAG             = "${env.BUILD_NUMBER}"
+        DEPLOY_HOST           = 'CHANGE_ME'
+        DEPLOY_USER           = 'CHANGE_ME'
+    }
+
+    stages {
+
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Install dependencies') {
+            steps {
+                sh 'npm ci'
+            }
+        }
+
+        stage('Build') {
+            steps {
+                sh 'npm run build'
+            }
+        }
+
+        stage('Unit tests') {
+            steps {
+                sh 'npm run test:coverage'
+                sh 'cp reports/junit.xml reports/junit-unit.xml'
+                sh 'rm -rf coverage-unit && mv coverage coverage-unit'
+            }
+            post {
+                always {
+                    junit 'reports/junit-unit.xml'
+                }
+            }
+        }
+
+        stage('E2E tests') {
+            steps {
+                sh 'npm run test:e2e:coverage'
+                sh 'cp reports/junit.xml reports/junit-e2e.xml'
+                sh 'rm -rf coverage-e2e && mv coverage coverage-e2e'
+            }
+            post {
+                always {
+                    junit 'reports/junit-e2e.xml'
+                }
+            }
+        }
+
+        stage('SonarQube analysis') {
+            steps {
+                withSonarQubeEnv('SonarQube') {
+                    sh 'npx sonar-scanner'
+                }
+            }
+        }
+
+        stage('Quality Gate') {
+            steps {
+                timeout(time: 5, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
+                }
+            }
+        }
+
+        stage('Docker build') {
+            steps {
+                sh "docker build -t ${IMAGE_NAME}:${IMAGE_TAG} -t ${IMAGE_NAME}:latest ."
+            }
+        }
+
+        stage('Docker push') {
+            steps {
+                sh 'echo "$DOCKERHUB_CREDENTIALS_PSW" | docker login -u "$DOCKERHUB_CREDENTIALS_USR" --password-stdin'
+                sh "docker push ${IMAGE_NAME}:${IMAGE_TAG}"
+                sh "docker push ${IMAGE_NAME}:latest"
+            }
+            post {
+                always {
+                    sh 'docker logout'
+                }
+            }
+        }
+
+        stage('Deploy') {
+            when {
+                branch 'main'
+            }
+            steps {
+                sshagent(credentials: ['deploy-server-ssh']) {
+                    sh """
+                        ssh -o StrictHostKeyChecking=no \$DEPLOY_USER@\$DEPLOY_HOST '
+                            docker pull ${IMAGE_NAME}:latest &&
+                            docker stop tasklist-backend || true &&
+                            docker rm tasklist-backend || true &&
+                            docker run -d --name tasklist-backend --restart unless-stopped \
+                                -p 3001:3001 --env-file /opt/tasklist/backend.env \
+                                ${IMAGE_NAME}:latest
+                        '
+                    """
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            archiveArtifacts artifacts: 'coverage-unit/**, coverage-e2e/**', allowEmptyArchive: true
+            cleanWs()
+        }
+    }
+}
