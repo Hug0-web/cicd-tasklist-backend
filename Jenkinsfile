@@ -16,8 +16,6 @@ pipeline {
         DOCKERHUB_NAMESPACE   = 'CHANGE_ME'
         IMAGE_NAME            = "${DOCKERHUB_NAMESPACE}/tasklist-backend"
         IMAGE_TAG             = "${env.BUILD_NUMBER}"
-        DEPLOY_HOST           = 'CHANGE_ME'
-        DEPLOY_USER           = 'CHANGE_ME'
     }
 
     stages {
@@ -106,17 +104,22 @@ pipeline {
                 branch 'main'
             }
             steps {
-                sshagent(credentials: ['deploy-server-ssh']) {
-                    sh """
-                        ssh -o StrictHostKeyChecking=no \$DEPLOY_USER@\$DEPLOY_HOST '
-                            docker pull ${IMAGE_NAME}:latest &&
-                            docker stop tasklist-backend || true &&
-                            docker rm tasklist-backend || true &&
-                            docker run -d --name tasklist-backend --restart unless-stopped \
-                                -p 3001:3001 --env-file /opt/tasklist/backend.env \
-                                ${IMAGE_NAME}:latest
-                        '
-                    """
+                withCredentials([
+                    string(credentialsId: 'deploy-host', variable: 'DEPLOY_HOST'),
+                    string(credentialsId: 'deploy-user', variable: 'DEPLOY_USER')
+                ]) {
+                    sshagent(credentials: ['deploy-server-ssh']) {
+                        sh """
+                            ssh -o StrictHostKeyChecking=no \$DEPLOY_USER@\$DEPLOY_HOST '
+                                docker pull ${IMAGE_NAME}:latest &&
+                                docker stop tasklist-backend || true &&
+                                docker rm tasklist-backend || true &&
+                                docker run -d --name tasklist-backend --restart unless-stopped \
+                                    -p 3001:3001 --env-file /opt/tasklist/backend.env \
+                                    ${IMAGE_NAME}:latest
+                            '
+                        """
+                    }
                 }
             }
         }
